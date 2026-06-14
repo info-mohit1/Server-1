@@ -36,9 +36,28 @@ coreApplicationInstance.use(cors({
 
 coreApplicationInstance.use(express.json());
 
+// FIX 1: Telemetry check node verifying active execution states and fixing "Cannot GET /"
+coreApplicationInstance.get('/', (incomingRequest, outgoingResponse) => {
+  outgoingResponse.status(200).json({ 
+    status: 'active', 
+    gatewayMatrix: 'Operational core synchronized successfully' 
+  });
+});
+
 // Server health-check execution target
 coreApplicationInstance.get('/api/health', (incomingRequest, outgoingResponse) => {
   outgoingResponse.json({ status: 'ok', message: 'StudyNook API is running flawlessly' });
+});
+
+// FIX 2: Global structural context injector to safely extract auth tokens before reaching routers
+coreApplicationInstance.use((incomingRequest, outgoingResponse, triggerNextPipeline) => {
+  // Catch incoming clerk headers if present via frontend state transmission
+  if (incomingRequest.headers['x-user-id']) {
+    incomingRequest.user = { id: incomingRequest.headers['x-user-id'] };
+  } else if (incomingRequest.body && incomingRequest.body.user_id) {
+    incomingRequest.user = { id: incomingRequest.body.user_id };
+  }
+  triggerNextPipeline();
 });
 
 // Mounting logical gateway modular endpoints
