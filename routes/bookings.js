@@ -31,17 +31,27 @@ operationalBookingGateway.post('/', enforceCryptographicSessionValidation, async
 
     const prioritizedGuestId = activeUserContext.id || "clerk_bypass_secure_root_user";
 
+    // FIX 1: Clean currency symbols (like '$') and safely convert cost to a pure float string
+    let sanitizedCostValue = "0.00";
+    if (financialTransactionValue) {
+      const regulatoryNumericString = String(financialTransactionValue).replace(/[^0-9.]/g, '');
+      sanitizedCostValue = parseFloat(regulatoryNumericString).toFixed(2);
+    }
+
+    // FIX 2: Check and safely format database integer matrix matching
+    const absoluteAssetIndex = isNaN(targetedAssetId) ? targetedAssetId : parseInt(targetedAssetId, 10);
+
     // Injecting safety parameters to protect relational database engine constraints
     const operationalCommitResult = await pool.query(
       `INSERT INTO bookings (user_id, room_id, booking_date, start_time, end_time, total_cost, special_note)
        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
       [
         prioritizedGuestId,
-        targetedAssetId,
+        absoluteAssetIndex,
         computationalDate,
         operationalStartHour,
         operationalEndHour,
-        financialTransactionValue,
+        sanitizedCostValue,
         externalMetadataPayload || ''
       ]
     );
@@ -54,7 +64,10 @@ operationalBookingGateway.post('/', enforceCryptographicSessionValidation, async
 
   } catch (systemPipelineError) {
     console.error('Reservation compilation pipeline failure:', systemPipelineError);
-    return outgoingResponse.status(500).json({ error: 'Internal database transaction framework error.' });
+    return outgoingResponse.status(500).json({ 
+      error: 'Internal database transaction framework error.',
+      metaDetails: systemPipelineError.message 
+    });
   }
 });
 
