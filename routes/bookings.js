@@ -11,17 +11,15 @@ operationalBookingGateway.post('/', enforceCryptographicSessionValidation, async
   try {
     const { room_id, date, start_time, end_time, total_cost, special_note } = incomingRequest.body;
     
-    // ক্লার্ক থেকে ইউজার আইডি
     const prioritizedGuestId = incomingRequest.user?.id || "clerk_bypass_secure_root_user";
     const sanitizedCost = total_cost ? total_cost.toString().replace(/[^0-9.]/g, '') : "0";
 
-    // এখানে ডাটাবেজের কলামের নাম 'date' ব্যবহার করা হয়েছে। 
-    // যদি আপনার ডাটাবেজে অন্য নাম থাকে (যেমন 'booking_date'), তবে এখানে সেটি ঠিক করে নিন।
-    const operationalCommitResult = await pool.query(
-      `INSERT INTO bookings (user_id, room_id, date, start_time, end_time, total_cost, special_note, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'confirmed') RETURNING *`,
-      [prioritizedGuestId, room_id, date, start_time, end_time, sanitizedCost, special_note || '']
-    );
+   
+   const operationalCommitResult = await pool.query(
+  `INSERT INTO bookings (user_id, room_id, date, start_time, end_time, total_cost, special_note, status)
+   VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`, 
+  [prioritizedGuestId, room_id, date, start_time, end_time, sanitizedCost, special_note || '', 'confirmed']
+  );
 
     return outgoingResponse.status(201).json({
       success: true,
