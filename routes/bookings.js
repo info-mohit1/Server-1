@@ -4,79 +4,55 @@ const { pool } = require('../db');
 
 // Securely import the core session interceptor
 const cryptographicSecurityModule = require('../middleware/auth');
-
 const enforceCryptographicSessionValidation = typeof cryptographicSecurityModule === 'function'
   ? cryptographicSecurityModule
   : (cryptographicSecurityModule.enforceCryptographicSessionValidation || cryptographicSecurityModule.default);
 
 /**
- * 1. POST: Reserve and initialize a fresh room booking transaction
- * Engineered with comprehensive failovers to completely bypass parsing mismatches
+ * POST: Reserve and initialize a fresh room booking transaction
+ * Engineered to support diverse frontend naming conventions and sanitize financial inputs
  */
-operationalBookingGateway.post('/', async (incomingRequest, outgoingResponse) => {
+operationalBookingGateway.post('/', enforceCryptographicSessionValidation, async (incomingRequest, outgoingResponse) => {
   try {
-    // Broad matrix extraction supporting multiple incoming frontend variable syntaxes
+    // সংগৃহীত পেলোড - ফ্রন্টএন্ডের যেকোনো ভেরিয়েবল নামের সাথে সামঞ্জস্যপূর্ণ
     const {
-      room_id,
-      roomId,
-      targetedAssetId,
-      booking_date,
-      bookingDate,
-      computationalDate,
-      start_time,
-      startTime,
-      operationalStartHour,
-      end_time,
-      endTime,
-      operationalEndHour,
-      total_cost,
-      totalCost,
-      financialTransactionValue,
-      special_note,
-      specialNote,
-      externalMetadataPayload,
-      user_id,
-      userId
+      room_id, roomId, targetedAssetId,
+      date, bookingDate, computationalDate,
+      start_time, startTime, operationalStartHour,
+      end_time, endTime, operationalEndHour,
+      total_cost, totalCost, financialTransactionValue,
+      special_note, specialNote
     } = incomingRequest.body;
 
-    // Direct dynamic fallbacks to ensure variables are never empty
+    // ক্লার্ক মিডলওয়্যার থেকে প্রাপ্ত ইউজার আইডি
+    const prioritizedGuestId = incomingRequest.user?.id || "clerk_bypass_secure_root_user";
+
+    // ভ্যালুগুলো রিসলভ করা
     const resolvedRoomId = room_id || roomId || targetedAssetId;
-    const resolvedDate = booking_date || bookingDate || computationalDate;
+    const resolvedDate = date || bookingDate || computationalDate;
     const resolvedStart = start_time || startTime || operationalStartHour;
     const resolvedEnd = end_time || endTime || operationalEndHour;
-    const resolvedNote = special_note || specialNote || externalMetadataPayload || '';
-    
-    // Safely parse and isolate user identity references from any token state
-    const prioritizedGuestId = incomingRequest.user?.id || userId || user_id || "clerk_bypass_secure_root_user";
+    const resolvedNote = special_note || specialNote || '';
 
-    // Format financial data into an absolute numeric string without currency overhead
-    let sanitizedCostValue = "0.00";
-    const rawCostValue = total_cost || totalCost || financialTransactionValue;
-    if (rawCostValue) {
-      const regulatoryNumericString = String(rawCostValue).replace(/[^0-9.]/g, '');
-      sanitizedCostValue = parseFloat(regulatoryNumericString).toFixed(2);
+    // মানি ফরম্যাটিং (ডলার সাইন বা স্ট্রিং থাকলে তা ক্লিন করা)
+    let sanitizedCost = "0.00";
+    const rawCost = total_cost || totalCost || financialTransactionValue;
+    if (rawCost) {
+      sanitizedCost = parseFloat(String(rawCost).replace(/[^0-9.]/g, '')).toFixed(2);
     }
 
-    // Safety validation step before writing to relational datastore logs
+    // স্ট্রাকচারাল ভ্যালিডেশন
     if (!resolvedRoomId || !resolvedDate || !resolvedStart || !resolvedEnd) {
       return outgoingResponse.status(400).json({ 
         error: "Required structural scheduling parameters are missing or incomplete." 
       });
     }
 
-    // Direct transaction transmission targeting PostgreSQL baseline entities
+    // ডেটাবেজ ট্রানজেকশন
     const operationalCommitResult = await pool.query(
       `INSERT INTO bookings (user_id, room_id, booking_date, start_time, end_time, total_cost, special_note)
        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [
-        prioritizedGuestId,
-        resolvedRoomId,
-        resolvedDate,
-        resolvedStart,
-        resolvedEnd,
-        sanitizedCostValue,
-        resolvedNote
-      ]
+      [prioritizedGuestId, resolvedRoomId, resolvedDate, resolvedStart, resolvedEnd, sanitizedCost, resolvedNote]
     );
 
     return outgoingResponse.status(201).json({
@@ -89,19 +65,17 @@ operationalBookingGateway.post('/', async (incomingRequest, outgoingResponse) =>
     console.error('Reservation compilation pipeline failure:', systemPipelineError);
     return outgoingResponse.status(500).json({ 
       error: 'Internal database transaction framework error.',
-      metaDetails: systemPipelineError.message,
-      databaseErrorCode: systemPipelineError.code
+      detailedLog: systemPipelineError.message 
     });
   }
 });
 
 /**
- * 2. GET: Fetch authenticated customer's reservation history catalogs
+ * GET: Fetch authenticated customer's reservation history
  */
-operationalBookingGateway.get('/user/my-bookings', async (incomingRequest, outgoingResponse) => {
+operationalBookingGateway.get('/user/my-bookings', enforceCryptographicSessionValidation, async (incomingRequest, outgoingResponse) => {
   try {
-    const prioritizedGuestId = incomingRequest.user?.id || incomingRequest.query?.userId || "clerk_bypass_secure_root_user";
-
+    const prioritizedGuestId = incomingRequest.user?.id || "clerk_bypass_secure_root_user";
     const compiledUserReservations = await pool.query(
       `SELECT b.*, r.name as room_name, r.image as room_image 
        FROM bookings b 
@@ -110,7 +84,6 @@ operationalBookingGateway.get('/user/my-bookings', async (incomingRequest, outgo
        ORDER BY b.created_at DESC`,
       [prioritizedGuestId]
     );
-
     return outgoingResponse.json(compiledUserReservations.rows);
   } catch (systemPipelineError) {
     console.error(systemPipelineError);
@@ -119,25 +92,14 @@ operationalBookingGateway.get('/user/my-bookings', async (incomingRequest, outgo
 });
 
 /**
- * 3. PATCH: Terminate and cancel an active reservation lifecycle node
+ * PATCH: Cancel reservation
  */
-operationalBookingGateway.patch('/:id/cancel', async (incomingRequest, outgoingResponse) => {
+operationalBookingGateway.patch('/:id/cancel', enforceCryptographicSessionValidation, async (incomingRequest, outgoingResponse) => {
   try {
-    const structuralCancellationResult = await pool.query(
-      `UPDATE bookings SET status = 'cancelled' WHERE id = $1 RETURNING *`,
-      [incomingRequest.params.id]
-    );
-
-    if (structuralCancellationResult.rows.length === 0) {
-      return outgoingResponse.status(404).json({ error: 'Target reservation resource not found.' });
-    }
-
-    return outgoingResponse.json({
-      message: 'Reservation cancelled successfully within pipeline context.',
-      data: structuralCancellationResult.rows[0]
-    });
+    const result = await pool.query(`UPDATE bookings SET status = 'cancelled' WHERE id = $1 RETURNING *`, [incomingRequest.params.id]);
+    if (result.rows.length === 0) return outgoingResponse.status(404).json({ error: 'Reservation not found.' });
+    return outgoingResponse.json({ message: 'Cancelled successfully.', data: result.rows[0] });
   } catch (systemPipelineError) {
-    console.error(systemPipelineError);
     return outgoingResponse.status(500).json({ error: 'Server error' });
   }
 });
