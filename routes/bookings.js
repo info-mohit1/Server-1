@@ -14,7 +14,7 @@ const enforceCryptographicSessionValidation = typeof cryptographicSecurityModule
  */
 operationalBookingGateway.post('/', enforceCryptographicSessionValidation, async (incomingRequest, outgoingResponse) => {
   try {
-    // সংগৃহীত পেলোড - ফ্রন্টএন্ডের যেকোনো ভেরিয়েবল নামের সাথে সামঞ্জস্যপূর্ণ
+  
     const {
       room_id, roomId, targetedAssetId,
       date, bookingDate, computationalDate,
@@ -24,34 +24,34 @@ operationalBookingGateway.post('/', enforceCryptographicSessionValidation, async
       special_note, specialNote
     } = incomingRequest.body;
 
-    // ক্লার্ক মিডলওয়্যার থেকে প্রাপ্ত ইউজার আইডি
+
     const prioritizedGuestId = incomingRequest.user?.id || "clerk_bypass_secure_root_user";
 
-    // ভ্যালুগুলো রিসলভ করা
+   
     const resolvedRoomId = room_id || roomId || targetedAssetId;
     const resolvedDate = date || bookingDate || computationalDate;
     const resolvedStart = start_time || startTime || operationalStartHour;
     const resolvedEnd = end_time || endTime || operationalEndHour;
     const resolvedNote = special_note || specialNote || '';
 
-    // মানি ফরম্যাটিং (ডলার সাইন বা স্ট্রিং থাকলে তা ক্লিন করা)
+  
     let sanitizedCost = "0.00";
     const rawCost = total_cost || totalCost || financialTransactionValue;
     if (rawCost) {
       sanitizedCost = parseFloat(String(rawCost).replace(/[^0-9.]/g, '')).toFixed(2);
     }
 
-    // স্ট্রাকচারাল ভ্যালিডেশন
+  
     if (!resolvedRoomId || !resolvedDate || !resolvedStart || !resolvedEnd) {
       return outgoingResponse.status(400).json({ 
         error: "Required structural scheduling parameters are missing or incomplete." 
       });
     }
 
-    // ডেটাবেজ ট্রানজেকশন
+   
     const operationalCommitResult = await pool.query(
-      `INSERT INTO bookings (user_id, room_id, booking_date, start_time, end_time, total_cost, special_note)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      `INSERT INTO bookings (user_id, room_id, booking_date, start_time, end_time, total_cost, special_note, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'confirmed') RETURNING *`,
       [prioritizedGuestId, resolvedRoomId, resolvedDate, resolvedStart, resolvedEnd, sanitizedCost, resolvedNote]
     );
 
@@ -100,6 +100,7 @@ operationalBookingGateway.patch('/:id/cancel', enforceCryptographicSessionValida
     if (result.rows.length === 0) return outgoingResponse.status(404).json({ error: 'Reservation not found.' });
     return outgoingResponse.json({ message: 'Cancelled successfully.', data: result.rows[0] });
   } catch (systemPipelineError) {
+    console.error(systemPipelineError);
     return outgoingResponse.status(500).json({ error: 'Server error' });
   }
 });
